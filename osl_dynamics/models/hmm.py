@@ -2,6 +2,7 @@
 
 """
 
+import wandb
 import logging
 import os.path as op
 import sys
@@ -107,8 +108,6 @@ class Config(BaseModelConfig):
     initial_covariances: np.ndarray = None
     diagonal_covariances: bool = False
     covariances_epsilon: float = None
-    means_regularizer: tf.keras.regularizers.Regularizer = None
-    covariances_regularizer: tf.keras.regularizers.Regularizer = None
 
     initial_trans_prob: np.ndarray = None
     learn_trans_prob: bool = True
@@ -186,6 +185,9 @@ class Model(ModelBase):
         # Training curves
         history = {"loss": [], "rho": [], "lr": []}
 
+        sequence_length = self.config.sequence_length
+        n_channels = self.config.n_channels
+
         # Loop through epochs
         if use_tqdm:
             _range = trange(epochs)
@@ -204,6 +206,9 @@ class Model(ModelBase):
             lr = self.config.learning_rate * np.exp(
                 -self.config.observation_update_decay * n
             )
+            wandb.log({"rho": self.rho})
+            wandb.log({"lr": lr})
+            wandb.log({"epoch": n + 1})
             backend.set_value(self.model.optimizer.lr, lr)
 
             # Loop over batches
@@ -238,6 +243,8 @@ class Model(ModelBase):
                     _range.set_postfix(rho=self.rho, lr=lr, loss=l)
                 else:
                     pb_i.add(1, values=[("rho", self.rho), ("lr", lr), ("loss", l)])
+                wandb.log({"loss": np.mean(loss)/(sequence_length*n_channels)})
+                # wandb.log({"loss": np.mean(loss)/(sequence_length)})
 
             history["loss"].append(np.mean(loss))
             history["rho"].append(self.rho)
@@ -387,16 +394,13 @@ class Model(ModelBase):
 
         return best_history
 
-    def _get_state_probs(self, x, subj_id=None):
+    def _get_state_probs(self, x):
         """Get state probabilities.
 
         Parameters
         ----------
         x : np.ndarray
             Observed data. Shape is (batch_size, sequence_length, n_channels).
-        subj_id : np.ndarray
-            Subject ID. Shape is (batch_size, sequence_length).
-            Only used in osl_dynamics.models.sehmm.
 
         Returns
         -------
@@ -409,7 +413,7 @@ class Model(ModelBase):
         """
 
         # Use Baum-Welch algorithm to calculate gamma, xi
-        B = self._get_likelihood(x, subj_id)
+        B = self._get_likelihood(x)
         Pi_0 = self.state_probs_t0
         P = self.trans_prob
 
@@ -475,16 +479,13 @@ class Model(ModelBase):
 
         return gamma, xi
 
-    def _get_likelihood(self, x, subj_id=None):
+    def _get_likelihood(self, x):
         """Get the likelihood, p(x_t | s_t).
 
         Parameters
         ----------
         x : np.ndarray
             Observed data. Shape is (batch_size, sequence_length, n_channels).
-        subj_id : np.ndarray
-            Subject ID. Shape is (batch_size, sequence_length).
-            Only used in for osl_dynamics.models.sehmm
 
         Returns
         -------
@@ -492,16 +493,9 @@ class Model(ModelBase):
             Likelihood. Shape is (n_states, batch_size*sequence_length).
         """
         # Get the current observation model parameters
-        if subj_id is None:
-            means, covs = self.get_means_covariances()
-            n_states = means.shape[0]
-        else:
-            means, covs = self.get_subject_means_covariances()
-            n_states = means.shape[1]
-            subj_id = tf.cast(subj_id, tf.int32)
-            means = tf.gather(means, subj_id)
-            covs = tf.gather(covs, subj_id)
+        means, covs = self.get_means_covariances()
 
+        n_states = means.shape[0]
         batch_size = x.shape[0]
         sequence_length = x.shape[1]
 
@@ -510,8 +504,8 @@ class Model(ModelBase):
         log_likelihood = np.empty([n_states, batch_size, sequence_length])
         for state in range(n_states):
             mvn = tfp.distributions.MultivariateNormalTriL(
-                loc=tf.gather(means, state, axis=-2),
-                scale_tril=tf.linalg.cholesky(tf.gather(covs, state, axis=-3)),
+                loc=means[state],
+                scale_tril=tf.linalg.cholesky(covs[state]),
                 allow_nan_stats=False,
             )
             log_likelihood[state] = mvn.log_prob(x)
@@ -603,7 +597,7 @@ class Model(ModelBase):
 
         return first_term - second_term
 
-    def _get_posterior_expected_log_likelihood(self, x, gamma, subj_id=None):
+    def _get_posterior_expected_log_likelihood(self, x, gamma):
         """Expected log-likelihood.
 
         Calculates the expected log-likelihood with respect to the posterior
@@ -621,9 +615,6 @@ class Model(ModelBase):
         gamma : np.ndarray
             Marginal posterior distribution of hidden states given the data, q(s_t).
             Shape is (batch_size*sequence_length, n_states).
-        subj_id : np.ndarray
-            Subject ID. Shape is (batch_size, sequence_length).
-            Only used in osl_dynamics.models.sehmm
 
         Returns
         -------
@@ -631,7 +622,7 @@ class Model(ModelBase):
             Posterior expected log-likelihood.
         """
         gamma = np.reshape(gamma, (x.shape[0], x.shape[1], -1))
-        log_likelihood = self._get_log_likelihood(x, subj_id)
+        log_likelihood = self._get_log_likelihood(x)
         return tf.reduce_sum(log_likelihood * gamma)
 
     def _get_posterior_expected_prior(self, gamma, xi):
@@ -698,30 +689,20 @@ class Model(ModelBase):
         )
         return log_prediction_distribution
 
-    def _get_log_likelihood(self, data, subj_id=None):
+    def _get_log_likelihood(self, data):
         """Get the log-likelihood of data, log p(x_t | s_t).
 
         Parameters
         ----------
         data : np.ndarray
             Data. Shape is (batch_size, ..., n_channels).
-        subj_id : np.ndarray
-            Subject ID. Shape is (batch_size, ...).
-            Only used in osl_dynamics.models.sehmm
 
         Returns
         -------
         log_likelihood : np.ndarray
             Log-likelihood. Shape is (batch_size, ..., n_states)
         """
-        if subj_id is None:
-            means, covs = self.get_means_covariances()
-        else:
-            means, covs = self.get_subject_means_covariances()
-            subj_id = tf.cast(subj_id, tf.int32)
-            means = tf.gather(means, subj_id)
-            covs = tf.gather(covs, subj_id)
-
+        means, covs = self.get_means_covariances()
         mvn = tfp.distributions.MultivariateNormalTriL(
             loc=means,
             scale_tril=tf.linalg.cholesky(covs),
@@ -730,7 +711,7 @@ class Model(ModelBase):
         log_likelihood = mvn.log_prob(tf.expand_dims(data, axis=-2))
         return log_likelihood.numpy()
 
-    def _evidence_update_step(self, data, log_prediction_distribution, subj_id=None):
+    def _evidence_update_step(self, data, log_prediction_distribution):
         """Update step for calculating the evidence.
 
         .. math::
@@ -744,9 +725,6 @@ class Model(ModelBase):
             Data for the update step. Shape is (batch_size, n_channels).
         log_prediction_distribution : np.ndarray
             log p(s_t | x_1:t-1). Shape is (batch_size, n_states).
-        subj_id : np.ndarray
-            Subject ID. Shape is (batch_size,).
-            Only used in osl_dynamics.models.sehmm
 
         Returns
         -------
@@ -755,7 +733,7 @@ class Model(ModelBase):
         predictive_log_likelihood : np.ndarray
             log p(x_t | x_1:t-1). Shape is (batch_size).
         """
-        log_likelihood = self._get_log_likelihood(data, subj_id)
+        log_likelihood = self._get_log_likelihood(data)
         log_smoothing_distribution = log_likelihood + log_prediction_distribution
         predictive_log_likelihood = logsumexp(log_smoothing_distribution, -1)
 
@@ -1181,7 +1159,6 @@ def _model_structure(config):
         config.n_channels,
         config.learn_means,
         config.initial_means,
-        config.means_regularizer,
         name="means",
     )
     if config.diagonal_covariances:
@@ -1191,7 +1168,6 @@ def _model_structure(config):
             config.learn_covariances,
             config.initial_covariances,
             config.covariances_epsilon,
-            config.covariances_regularizer,
             name="covs",
         )
     else:
@@ -1201,7 +1177,6 @@ def _model_structure(config):
             config.learn_covariances,
             config.initial_covariances,
             config.covariances_epsilon,
-            config.covariances_regularizer,
             name="covs",
         )
     ll_loss_layer = CategoricalLogLikelihoodLossLayer(
@@ -1211,6 +1186,6 @@ def _model_structure(config):
     # Data flow
     mu = means_layer(data)  # data not used
     D = covs_layer(data)  # data not used
-    ll_loss = ll_loss_layer([data, mu, D, gamma, None])
+    ll_loss = ll_loss_layer([data, mu, D, gamma])
 
     return tf.keras.Model(inputs=inputs, outputs=[ll_loss], name="HMM-Obs")

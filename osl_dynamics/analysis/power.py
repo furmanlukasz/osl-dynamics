@@ -2,11 +2,10 @@
 
 """
 
-import logging
 import os
+import logging
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import nibabel as nib
 import numpy as np
 from nilearn import plotting
@@ -255,7 +254,6 @@ def save(
     component=0,
     subtract_mean=False,
     mean_weights=None,
-    asymmetric_data=False,
     plot_kwargs=None,
 ):
     """Saves power maps.
@@ -283,10 +281,6 @@ def save(
     mean_weights: np.ndarray
         Numpy array with weightings for each mode to use to calculate the mean.
         Default is equal weighting.
-    asymmetric_data : bool
-        If True, the power map is scaled to the range [-1, 1] before plotting.
-        The colorbar is rescaled to show the correct values. Useful for plotting
-        maps of statistics such as lifetimes.
     plot_kwargs : dict
         Keyword arguments to pass to `nilearn.plotting.plot_img_on_surf
         <https://nilearn.github.io/stable/modules/generated/nilearn.plotting.plot_img_on_surf.html>`_.
@@ -360,16 +354,6 @@ def save(
     # Select the component to plot
     power_map = power_map[component]
 
-    original_max = power_map.max()
-    original_min = power_map.min()
-
-    if asymmetric_data:
-        # Scale power map to be between -1 and 1
-        power_map -= power_map.min()
-        power_map /= power_map.max()
-        power_map *= 2
-        power_map -= 1
-
     # Calculate power map grid
     power_map = power_map_grid(mask_file, parcellation_file, power_map)
 
@@ -386,7 +370,6 @@ def save(
         "colorbar": True,
     }
     plot_kwargs = utils.misc.override_dict_defaults(default_plot_kwargs, plot_kwargs)
-    cmap = plot_kwargs.get("cmap", "cold_hot")
 
     # Just display the power map
     if filename is None:
@@ -396,15 +379,6 @@ def save(
             fig, ax = plotting.plot_img_on_surf(nii, output_file=None, **plot_kwargs)
             figures.append(fig)
             axes.append(ax)
-            if asymmetric_data:
-                plt.colorbar(
-                    plt.cm.ScalarMappable(
-                        plt.matplotlib.colors.Normalize(original_min, original_max),
-                        cmap=cmap,
-                    ),
-                    cax=ax[-1],
-                    orientation="horizontal",
-                )
         return figures, axes
 
     else:

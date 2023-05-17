@@ -153,7 +153,7 @@ class Model(ModelBase):
 
     Parameters
     ----------
-    config : osl_dynamics.models.sedynemo_obs.Config
+    config : osl_dynamics.models.directional_sedynemo_obs.Config
     """
 
     config_type = Config
@@ -162,27 +162,7 @@ class Model(ModelBase):
         """Builds a keras model."""
         self.model = _model_structure(self.config)
 
-    def get_group_means(self):
-        """Get the group means.
-
-        Returns
-        -------
-        means : np.ndarray
-            Group means. Shape is (n_modes, n_channels).
-        """
-        return dynemo_obs.get_means(self.model, "group_means")
-
-    def get_group_covariances(self):
-        """Get the group covariances.
-
-        Returns
-        -------
-        covariances : np.ndarray
-            Group covariances. Shape is (n_modes, n_channels, n_channels).
-        """
-        return dynemo_obs.get_covariances(self.model, "group_covs")
-
-    def get_group_means_covariances(self):
+    def get_group_means_covs(self):
         """Get the group means and covariances of each mode.
 
         Returns
@@ -192,7 +172,7 @@ class Model(ModelBase):
         covariances : np.ndarray
             Mode covariances for the group. Shape is (n_modes, n_channels, n_channels).
         """
-        return get_group_means_covariances(self.model)
+        return get_group_means_covs(self.model)
 
     def get_subject_embeddings(self):
         """Get the subject embedding vectors.
@@ -221,7 +201,7 @@ class Model(ModelBase):
         subject_covs : np.ndarray
             Mode covariances for each subject. Shape is (n_subjects, n_modes, n_channels, n_channels).
         """
-        return get_subject_means_covariances(
+        return get_subject_means_covs(
             self.model,
             self.config.learn_means,
             self.config.learn_covariances,
@@ -241,8 +221,6 @@ class Model(ModelBase):
         training_data : tensorflow.data.Dataset
             Training dataset.
         """
-        training_dataset = self.make_dataset(training_dataset, concatenate=True)
-
         if self.config.learn_means:
             dynemo_obs.set_means_regularizer(
                 self.model, training_dataset, layer_name="group_means"
@@ -551,6 +529,7 @@ def _model_structure(config):
         means_dev_mag_mod_beta_layer = layers.Dense(
             1,
             activation="softplus",
+            use_bias=False,
             name="means_dev_mag_mod_beta",
         )
 
@@ -590,6 +569,7 @@ def _model_structure(config):
         covs_dev_mag_mod_beta_layer = layers.Dense(
             1,
             activation="softplus",
+            use_bias=False,
             name="covs_dev_mag_mod_beta",
         )
 
@@ -628,11 +608,13 @@ def _model_structure(config):
     )
 
 
-def get_group_means_covariances(model):
-    """Wrapper for getting the group level means and covariances."""
-    group_means = dynemo_obs.get_means(model, "group_means")
-    group_covariances = dynemo_obs.get_covariances(model, "group_covs")
-    return group_means, group_covariances
+def get_group_means_covs(model):
+    group_means_layer = model.get_layer("group_means")
+    group_covs_layer = model.get_layer("group_covs")
+
+    group_means = group_means_layer(1)
+    group_covs = group_covs_layer(1)
+    return group_means.numpy(), group_covs.numpy()
 
 
 def get_subject_embeddings(model):
@@ -749,10 +731,10 @@ def get_subject_dev(
     return means_dev.numpy(), covs_dev.numpy()
 
 
-def get_subject_means_covariances(
+def get_subject_means_covs(
     model, learn_means, learn_covariances, subject_embeddings=None, n_neighbours=2
 ):
-    group_means, group_covs = get_group_means_covariances(model)
+    group_means, group_covs = get_group_means_covs(model)
     means_dev, covs_dev = get_subject_dev(
         model, learn_means, learn_covariances, subject_embeddings, n_neighbours
     )
@@ -766,7 +748,7 @@ def get_subject_means_covariances(
 
 
 def _get_means_mode_embeddings(model):
-    group_means, _ = get_group_means_covariances(model)
+    group_means, _ = get_group_means_covs(model)
     means_mode_embeddings_layer = model.get_layer("means_mode_embeddings")
     means_mode_embeddings = means_mode_embeddings_layer(group_means)
     return means_mode_embeddings.numpy()
@@ -774,7 +756,7 @@ def _get_means_mode_embeddings(model):
 
 def _get_covs_mode_embeddings(model):
     cholesky_bijector = tfb.Chain([tfb.CholeskyOuterProduct(), tfb.FillScaleTriL()])
-    _, group_covs = get_group_means_covariances(model)
+    _, group_covs = get_group_means_covs(model)
     covs_mode_embeddings_layer = model.get_layer("covs_mode_embeddings")
     covs_mode_embeddings = covs_mode_embeddings_layer(
         cholesky_bijector.inverse(group_covs)

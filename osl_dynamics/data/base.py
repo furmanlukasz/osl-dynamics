@@ -127,6 +127,7 @@ class Data:
         self.n_jobs = n_jobs
         self.prepared = False
         self.prepared_data_filenames = []
+        self.explained_variance_ratio = None
 
         # Validate inputs
         self.inputs = rw.validate_inputs(inputs)
@@ -573,6 +574,13 @@ class Data:
             prepared_data_memmap = prepared_data
         return prepared_data_memmap
 
+    def get_variance_explained(self):
+        """Returns the variance explained by each PCA component."""
+        if self.pca_components is None:
+            raise ValueError("PCA components have not been calculated.")
+
+        return self.explained_variance_ratio
+
     def prepare_tde(
         self,
         n_embeddings=1,
@@ -634,6 +642,7 @@ class Data:
             u, s, vh = np.linalg.svd(covariance)
             u = u[:, :n_pca_components].astype(np.float32)
             explained_variance = np.sum(s[:n_pca_components]) / np.sum(s)
+            self.explained_variance_ratio = explained_variance
             _logger.info(f"Explained variance: {100 * explained_variance:.1f}%")
             s = s[:n_pca_components].astype(np.float32)
             if whiten:

@@ -1,5 +1,9 @@
 """Wrapper functions for use in the config API.
 
+See the `toolbox examples
+<https://github.com/OHBA-analysis/osl-dynamics/tree/main/examples/toolbox_paper>`_
+for scripts that use the config API.
+
 All of the functions in this module can be listed in the config passed to
 :code:`osl_dynamics.run_pipeline`.
 
@@ -9,7 +13,7 @@ All wrapper functions have the structure::
 
 where:
 
-- :code:`data` is an :code:`osl_dynamics.data.Data` object.
+- :code:`data` is an :code:`osl_dynamics.data.Data` object
 - :code:`output_dir` is the path to save output to.
 - :code:`kwargs` are keyword arguments for function specific options.
 """
@@ -1213,11 +1217,11 @@ def plot_alpha(
         plotting.plot_alpha(alp[subject], **kwargs)
 
     if normalize:
-        from osl_dynamics.inference import modes
-
         # Calculate normalised alphas
         covs = load(f"{inf_params_dir}/covs.npy")
-        norm_alp = modes.reweight_alphas(alp)
+        traces = np.trace(covs, axis1=1, axis2=2)
+        norm_alp = [a * traces[np.newaxis, :] for a in alp]
+        norm_alp = [na / np.sum(na, axis=1, keepdims=True) for na in norm_alp]
 
         # Plot
         if subject == "all":
@@ -1285,9 +1289,6 @@ def plot_summary_stats(data, output_dir, use_gmm_alpha=False, sampling_frequency
 
     - :code:`<output_dir>/summary_stats`, which contains plots of the summary statistics.
 
-    The :code:`<output_dir>/summary_stats` directory will also contain numpy files
-    with the summary statistics.
-
     Parameters
     ----------
     data : osl_dynamics.data.Data
@@ -1339,12 +1340,6 @@ def plot_summary_stats(data, output_dir, use_gmm_alpha=False, sampling_frequency
     lt = modes.mean_lifetimes(stc, sampling_frequency)
     intv = modes.mean_intervals(stc, sampling_frequency)
     sr = modes.switching_rates(stc, sampling_frequency)
-
-    # Save summary stats
-    save(f"{summary_stats_dir}/fo.npy", fo)
-    save(f"{summary_stats_dir}/lt.npy", lt)
-    save(f"{summary_stats_dir}/intv.npy", intv)
-    save(f"{summary_stats_dir}/sr.npy", sr)
 
     # Plot
     from osl_dynamics.utils import plotting

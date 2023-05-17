@@ -4,7 +4,6 @@
 
 from osl_dynamics.analysis import (
     connectivity,
-    fisher_kernel,
     gmm,
     modes,
     power,

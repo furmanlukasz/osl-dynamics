@@ -666,6 +666,139 @@ def separate_edges(conn_map):
     neg_conn_map[neg_conn_map > 0] = 0
     return pos_conn_map, neg_conn_map
 
+def save_custom(
+        connectivity_map,
+        centroids,
+        filename=None,
+        component=None,
+        threshold=0,
+        glassbrain=False,
+        plot_kwargs=None,
+):
+    """Save connectivity maps.
+
+    Parameters
+    ----------
+    connectivity_map : np.ndarray
+        Matrices containing connectivity strengths to plot.
+        Shape must be (n_modes, n_channels, n_channels) or (n_channels, n_channels).
+    parcellation_file : str
+        Name of parcellation file used.
+    filename : str
+        Output filename.
+        Optional, if None is passed then the image is shown on screen.
+    component : int
+        Spectral component to save.
+    threshold : float or np.ndarray
+        Threshold to determine which connectivity to show. Should be between 0 and 1.
+        If a float is passed the same threshold is used for all modes. Otherwise,
+        threshold should be a numpy array of shape (n_modes,).
+    glassbrain : bool
+        Sholud we create a 3D glass brain plot (as an interactive HTML file)
+        or a 2D image plot (as a png, pdf, svg, etc. file).
+    plot_kwargs : dict
+        Keyword arguments to pass to the nilearn plotting function:
+
+        - `nilearn.plotting.plot_connectome <https://nilearn.github.io/stable/modules/generated/nilearn.plotting.plot_connectome.html>`_ if glassbrain=False.
+        - `nilearn.plotting.view_connectome <https://nilearn.github.io/stable/modules/generated/nilearn.plotting.view_connectome.html>`_ if glassbrain=True.
+
+        Example use::
+
+            connectivity.save(
+                ...,
+                plot_kwargs={
+                    "edge_cmap": "red_transparent_full_alpha_range",
+                    "display_mode": "lyrz",
+                },
+            )
+    """
+
+    # Validation
+    if filename is not None:
+        if glassbrain and Path(filename).suffix != ".html":
+            raise ValueError(
+                "If glassbrain=True then filename must have a .html extension."
+            )
+
+    connectivity_map = np.copy(connectivity_map)
+    error_message = (
+            "Dimensionality of connectivity_map must be 3 or 4, "
+            + f"got ndim={connectivity_map.ndim}."
+    )
+    connectivity_map = array_ops.validate(
+        connectivity_map,
+        correct_dimensionality=4,
+        allow_dimensions=[2, 3],
+        error_message=error_message,
+    )
+
+    if isinstance(threshold, float) or isinstance(threshold, int):
+        threshold = np.array([threshold] * connectivity_map.shape[1])
+
+    if np.any(threshold > 1) or np.any(threshold < 0):
+        raise ValueError("threshold must be between 0 and 1.")
+
+    if component is None:
+        component = 0
+
+    # Load parcellation file
+    # parcellation = Parcellation(parcellation_file)
+
+    # Select the component we're plotting
+    conn_map = np.copy(connectivity_map[component])
+
+    # Default plotting settings
+    default_plot_kwargs = {"node_size": 10, "node_color": "black"}
+
+    # Loop through each connectivity map
+    n_modes = conn_map.shape[0]
+    for i in trange(n_modes, desc="Saving images"):
+        # Overwrite keyword arguments if passed
+        kwargs = override_dict_defaults(default_plot_kwargs, plot_kwargs)
+
+        # Output filename
+        if filename is None:
+            output_file = None
+        else:
+            output_file = "{fn.parent}/{fn.stem}{i:0{w}d}{fn.suffix}".format(
+                fn=Path(filename), i=i, w=len(str(n_modes))
+            )
+
+        if glassbrain:
+            # The colour bar range is determined by the max value in the matrix
+            # we zero the diagonal so it's not included
+            np.fill_diagonal(conn_map[i], val=0)
+
+            # Plot thick lines for the connections
+            if "linewidth" not in kwargs:
+                kwargs["linewidth"] = 12
+
+            # Plot maps
+            connectome = plotting.view_connectome(
+                conn_map[i],
+                centroids,
+                edge_threshold=f"{threshold[i] * 100}%",
+                **kwargs,
+            )
+            if filename is not None:
+                connectome.save_as_html(output_file)
+            else:
+                return connectome
+
+        else:
+            # If all connections are zero don't add a colourbar
+            kwargs["colorbar"] = np.any(
+                conn_map[i][~np.eye(conn_map[i].shape[-1], dtype=bool)] != 0
+            )
+
+            # Plot maps
+            plotting.plot_connectome(
+                conn_map[i],
+                centroids,
+                edge_threshold=f"{threshold[i] * 100}%",
+                output_file=output_file,
+                **kwargs,
+            )
 
 def save(
     connectivity_map,

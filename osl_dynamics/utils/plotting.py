@@ -19,7 +19,10 @@ from osl_dynamics.array_ops import get_one_hot
 from osl_dynamics.utils.misc import override_dict_defaults
 from osl_dynamics.utils.topoplots import Topology
 from osl_dynamics.utils.parcellation import Parcellation
-
+# sns.set(style="ticks", palette="Set3", rc={"axes.grid": False})
+# sns.set_style('ticks')
+# sns.set_palette('Set3')
+# sns.set_context(rc={'axes.grid': False})
 
 _logger = logging.getLogger("osl-dynamics")
 
@@ -252,10 +255,11 @@ def plot_line(
         if isinstance(ax, np.ndarray):
             raise ValueError("Only pass one axis.")
 
-    if fig_kwargs is None:
-        fig_kwargs = {}
     default_fig_kwargs = {"figsize": (7, 4)}
-    fig_kwargs = override_dict_defaults(default_fig_kwargs, fig_kwargs)
+    if fig_kwargs is None:
+        fig_kwargs = default_fig_kwargs
+    else:
+        fig_kwargs = override_dict_defaults(default_fig_kwargs, fig_kwargs)
 
     if plot_kwargs is None:
         plot_kwargs = {}
@@ -401,10 +405,11 @@ def plot_scatter(
         if isinstance(ax, np.ndarray):
             raise ValueError("Only pass one axis.")
 
-    if fig_kwargs is None:
-        fig_kwargs = {}
     default_fig_kwargs = {"figsize": (7, 4)}
-    fig_kwargs = override_dict_defaults(default_fig_kwargs, fig_kwargs)
+    if fig_kwargs is None:
+        fig_kwargs = default_fig_kwargs
+    else:
+        fig_kwargs = override_dict_defaults(default_fig_kwargs, fig_kwargs)
 
     if plot_kwargs is None:
         plot_kwargs = {}
@@ -418,7 +423,7 @@ def plot_scatter(
     create_fig = ax is None
     if create_fig:
         fig, ax = create_figure(**fig_kwargs)
-
+    sns.despine(trim=True, ax=ax)
     # Plot data
     for i in range(len(x)):
         ax.scatter(
@@ -443,6 +448,7 @@ def plot_scatter(
     ax.set_title(title)
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
+
 
     # Add a legend
     if add_legend:
@@ -493,7 +499,7 @@ def plot_hist(
     title : str
         Figure title.
     plot_kwargs : dict
-        Arguments to pass to the ax.hist method. Defaults to {"histtype": "step"}.
+        Arguments to pass to the ax.hist method.
     fig_kwargs : dict
         Arguments to pass to plt.subplots.
     ax : matplotlib.axes.Axes
@@ -539,15 +545,14 @@ def plot_hist(
         if isinstance(ax, np.ndarray):
             raise ValueError("Only pass one axis.")
 
-    if fig_kwargs is None:
-        fig_kwargs = {}
     default_fig_kwargs = {"figsize": (7, 4)}
-    fig_kwargs = override_dict_defaults(default_fig_kwargs, fig_kwargs)
+    if fig_kwargs is None:
+        fig_kwargs = default_fig_kwargs
+    else:
+        fig_kwargs = override_dict_defaults(default_fig_kwargs, fig_kwargs)
 
     if plot_kwargs is None:
         plot_kwargs = {}
-    default_plot_kwargs = {"histtype": "step"}
-    plot_kwargs = override_dict_defaults(default_plot_kwargs, plot_kwargs)
 
     # Create figure
     create_fig = ax is None
@@ -556,7 +561,7 @@ def plot_hist(
 
     # Plot histograms
     for d, b, l in zip(data, bins, labels):
-        ax.hist(d, bins=b, label=l, **plot_kwargs)
+        ax.hist(d, bins=b, label=l, histtype="step")
 
     # Set axis range
     ax.set_xlim(x_range[0], x_range[1])
@@ -649,10 +654,11 @@ def plot_bar_chart(
         if isinstance(ax, np.ndarray):
             raise ValueError("Only pass one axis.")
 
-    if fig_kwargs is None:
-        fig_kwargs = {}
     default_fig_kwargs = {"figsize": (7, 4)}
-    fig_kwargs = override_dict_defaults(default_fig_kwargs, fig_kwargs)
+    if fig_kwargs is None:
+        fig_kwargs = default_fig_kwargs
+    else:
+        fig_kwargs = override_dict_defaults(default_fig_kwargs, fig_kwargs)
 
     if plot_kwargs is None:
         plot_kwargs = {}
@@ -693,6 +699,7 @@ def plot_gmm(
     x_label=None,
     y_label=None,
     title=None,
+    plot_kwargs=None,
     fig_kwargs=None,
     ax=None,
     filename=None,
@@ -724,6 +731,8 @@ def plot_gmm(
         Label for y-axis.
     title : str
         Figure title.
+    plot_kwargs : dict
+        Arguments to pass to the ax.hist method.
     fig_kwargs : dict
         Arguments to pass to plt.subplots.
     ax : matplotlib.axes.Axes
@@ -755,10 +764,14 @@ def plot_gmm(
         if isinstance(ax, np.ndarray):
             raise ValueError("Only pass one axis.")
 
-    if fig_kwargs is None:
-        fig_kwargs = {}
     default_fig_kwargs = {"figsize": (7, 4)}
-    fig_kwargs = override_dict_defaults(default_fig_kwargs, fig_kwargs)
+    if fig_kwargs is None:
+        fig_kwargs = default_fig_kwargs
+    else:
+        fig_kwargs = override_dict_defaults(default_fig_kwargs, fig_kwargs)
+
+    if plot_kwargs is None:
+        plot_kwargs = {}
 
     # Create figure
     create_fig = ax is None
@@ -854,20 +867,18 @@ def plot_violin(
         if isinstance(ax, np.ndarray):
             raise ValueError("Only pass one axis.")
 
-    if fig_kwargs is None:
-        fig_kwargs = {}
     default_fig_kwargs = {"figsize": (7, 4)}
-    fig_kwargs = override_dict_defaults(default_fig_kwargs, fig_kwargs)
+    if fig_kwargs is None:
+        fig_kwargs = default_fig_kwargs
+    else:
+        fig_kwargs = override_dict_defaults(default_fig_kwargs, fig_kwargs)
 
     # Create a pandas DataFrame
-    # Pad the data with NaNs to make sure all columns have the same length
-    max_len = max([d.size for d in data])
-    data_dict = {
-        k: np.pad(
-            v, pad_width=(0, max_len - v.size), mode="constant", constant_values=np.nan
-        )
-        for k, v in zip(x, data)
-    }
+    data_dict = {}
+    for x, d in zip(x, data):
+        data_dict[x] = []
+        for y in d:
+            data_dict[x].append(y)
     df = pd.DataFrame(data_dict)
 
     # Create figure
@@ -877,7 +888,7 @@ def plot_violin(
 
     # Plot violins
     sns.violinplot(df, ax=ax)
-
+    sns.despine(trim=True, left=True)
     # Set title and axis labels
     ax.set_title(title)
     ax.set_xlabel(x_label)
@@ -913,7 +924,6 @@ def plot_time_series(
         Keyword arguments to be passed on to matplotlib.pyplot.subplots.
     plot_kwargs : dict
         Keyword arguments to be passed on to matplotlib.pyplot.plot.
-        Defaults to {"lw": 0.7, "color": "tab:blue"}.
     ax : matplotlib.axes.Axes
         The axis on which to plot the data. If not given, a new axis is created.
     filename : str
@@ -940,15 +950,17 @@ def plot_time_series(
         if isinstance(ax, np.ndarray):
             raise ValueError("Only pass one axis.")
 
-    if fig_kwargs is None:
-        fig_kwargs = {}
     default_fig_kwargs = {"figsize": (12, 8)}
-    fig_kwargs = override_dict_defaults(default_fig_kwargs, fig_kwargs)
+    if fig_kwargs is None:
+        fig_kwargs = default_fig_kwargs
+    else:
+        fig_kwargs = override_dict_defaults(default_fig_kwargs, fig_kwargs)
 
-    if plot_kwargs is None:
-        plot_kwargs = {}
     default_plot_kwargs = {"lw": 0.7, "color": "tab:blue"}
-    plot_kwargs = override_dict_defaults(default_plot_kwargs, plot_kwargs)
+    if plot_kwargs is None:
+        plot_kwargs = default_plot_kwargs
+    else:
+        plot_kwargs = override_dict_defaults(default_plot_kwargs, plot_kwargs)
 
     # Calculate separation
     separation = (
@@ -1006,7 +1018,6 @@ def plot_separate_time_series(
         Keyword arguments to be passed on to matplotlib.pyplot.subplots.
     plot_kwargs : dict
         Keyword arguments to be passed on to matplotlib.pyplot.plot.
-        Defaults to {"lw": 0.7}.
     filename : str
         Output filename.
 
@@ -1021,15 +1032,17 @@ def plot_separate_time_series(
     n_samples = n_samples or min([ts.shape[0] for ts in time_series])
     n_lines = time_series[0].shape[1]
 
-    if fig_kwargs is None:
-        fig_kwargs = {}
     default_fig_kwargs = {"figsize": (20, 10), "sharex": "all"}
-    fig_kwargs = override_dict_defaults(default_fig_kwargs, fig_kwargs)
+    if fig_kwargs is None:
+        fig_kwargs = default_fig_kwargs
+    else:
+        fig_kwargs = override_dict_defaults(default_fig_kwargs, fig_kwargs)
 
-    if plot_kwargs is None:
-        plot_kwargs = {}
     default_plot_kwargs = {"lw": 0.7}
-    plot_kwargs = override_dict_defaults(default_plot_kwargs, plot_kwargs)
+    if plot_kwargs is None:
+        plot_kwargs = default_plot_kwargs
+    else:
+        plot_kwargs = override_dict_defaults(default_plot_kwargs, plot_kwargs)
 
     if sampling_frequency is not None:
         time_vector = np.linspace(0, n_samples / sampling_frequency, n_samples)
@@ -1133,10 +1146,11 @@ def plot_epoched_time_series(
         if isinstance(ax, np.ndarray):
             raise ValueError("Only pass one axis.")
 
-    if fig_kwargs is None:
-        fig_kwargs = {}
     default_fig_kwargs = {"figsize": (16, 3)}
-    fig_kwargs = override_dict_defaults(default_fig_kwargs, fig_kwargs)
+    if fig_kwargs is None:
+        fig_kwargs = default_fig_kwargs
+    else:
+        fig_kwargs = override_dict_defaults(default_fig_kwargs, fig_kwargs)
 
     if plot_kwargs is None:
         plot_kwargs = {}
@@ -1657,17 +1671,19 @@ def plot_alpha(
     colors = cmap.colors
 
     # Validation
-    if fig_kwargs is None:
-        fig_kwargs = {}
     default_fig_kwargs = dict(
         figsize=(12, 2.5 * n_alphas), sharex="all", facecolor="white"
     )
-    fig_kwargs = override_dict_defaults(default_fig_kwargs, fig_kwargs)
+    if fig_kwargs is None:
+        fig_kwargs = default_fig_kwargs
+    else:
+        fig_kwargs = override_dict_defaults(default_fig_kwargs, fig_kwargs)
 
-    if plot_kwargs is None:
-        plot_kwargs = {}
     default_plot_kwargs = dict(colors=colors)
-    plot_kwargs = override_dict_defaults(default_plot_kwargs, plot_kwargs)
+    if plot_kwargs is None:
+        plot_kwargs = default_plot_kwargs
+    else:
+        plot_kwargs = override_dict_defaults(default_plot_kwargs, plot_kwargs)
 
     if y_labels is None:
         y_labels = [None] * n_alphas
@@ -1783,10 +1799,11 @@ def plot_mode_lifetimes(
     if mode_time_course.ndim != 2:
         raise ValueError("mode_timecourse must be a 2D array")
 
-    if fig_kwargs is None:
-        fig_kwargs = {}
     default_fig_kwargs = {"figsize": (long * 2.5, short * 2.5)}
-    fig_kwargs = override_dict_defaults(default_fig_kwargs, fig_kwargs)
+    if fig_kwargs is None:
+        fig_kwargs = default_fig_kwargs
+    else:
+        fig_kwargs = override_dict_defaults(default_fig_kwargs, fig_kwargs)
 
     if plot_kwargs is None:
         plot_kwargs = {}
@@ -1946,11 +1963,11 @@ def plot_summary_stats_group_diff(name, summary_stats, pvalues, assignments, fil
         for state in range(n_states):
             ss_dict[name].append(summary_stats[subject, state])
             ss_dict["State"].append(state + 1)
-            ss_dict["Group"].append(assignments[subject])
+            ss_dict["Group"].append(int(assignments[subject]))
     ss_df = pd.DataFrame(ss_dict)
 
     # Plot a half violin for each group
-    sns.violinplot(data=ss_df, x="State", y=name, hue="Group", split=True)
+    sns.violinplot(data=ss_df, x="State", y=name, hue="Group", split=True, palette="Set2")
 
     # Add a star above the violin to indicate significance
     scatter_kwargs = {"c": "black", "s": 32, "marker": "*"}
@@ -1965,126 +1982,3 @@ def plot_summary_stats_group_diff(name, summary_stats, pvalues, assignments, fil
     _logger.info(f"Saving {filename}")
     plt.savefig(filename)
     plt.close()
-
-
-def plot_evoked_response(
-    t,
-    epochs,
-    pvalues,
-    significance_level=0.05,
-    offset_between_bars=0.01,
-    labels=None,
-    legend_loc=1,
-    x_label=None,
-    y_label=None,
-    title=None,
-    fig_kwargs=None,
-    ax=None,
-    filename=None,
-):
-    """Plot an evoked responses with significant time points highlighted.
-
-    Parameters
-    ----------
-    t : np.ndarray
-        Time axis. Shape must be (n_samples,).
-    epochs : np.ndarray
-        Evoked responses. Shape must be (n_samples, n_channels).
-    pvalues : np.ndarray
-        p-value for each evoked response. This can be calculated with
-        `osl_dynamics.analysis.statistics.evoked_response_max_stat_perm
-        <https://osl-dynamics.readthedocs.io/en/latest/autoapi/osl_dynamics/analysis/statistics/index.html#osl_dynamics.analysis.statistics.evoked_response_max_stat_perm>`_.
-    significance_level : float
-        Value to threshold the p-values with to consider significant. By
-        default pvalues < 0.05 are significant.
-    offset_between_bars : float
-        Vertical offset between bars that highlight significance.
-    labels : list
-        Label for each evoked response time series.
-    legend_loc : int
-        Position of the legend.
-    x_label : str
-        Label for x-axis.
-    y_label : str
-        Label for y-axis.
-    title : str
-        Figure title.
-    fig_kwargs : dict
-        Arguments to pass to plt.subplots.
-    ax : matplotlib.axes.axes
-        Axis object to plot on.
-    filename : str
-        Output filename.
-
-    Returns
-    -------
-    fig : matplotlib.pyplot.figure
-        Matplotlib figure object. Only returned if filename=None.
-    ax : matplotlib.pyplot.axis.
-        Matplotlib axis object(s). Only returned if filename=None.
-    """
-
-    # Validation
-    if labels is not None:
-        if isinstance(labels, str):
-            labels = [labels]
-        else:
-            if len(labels) != epochs.shape[1]:
-                raise ValueError("Incorrect number of lines or labels passed.")
-        add_legend = True
-    else:
-        labels = [None] * epochs.shape[1]
-        add_legend = False
-
-    if ax is not None:
-        if filename is not None:
-            raise ValueError(
-                "Please use plotting.save() to save the figure instead of the "
-                + "filename argument."
-            )
-        if isinstance(ax, np.ndarray):
-            raise ValueError("Only pass one axis.")
-
-    if fig_kwargs is None:
-        fig_kwargs = {}
-    default_fig_kwargs = {"figsize": (7, 4)}
-    fig_kwargs = override_dict_defaults(default_fig_kwargs, fig_kwargs)
-
-    # Get significant time points for each channel
-    significant = pvalues < significance_level
-
-    # Create figure
-    create_fig = ax is None
-    if create_fig:
-        fig, ax = create_figure(**fig_kwargs)
-
-    for i, e, l, s in zip(range(epochs.shape[1]), epochs.T, labels, significant.T):
-        # Plot evoked response
-        p = ax.plot(t, e, label=l)
-
-        # Highlight significant time points
-        sig_times = t[s]
-        if len(sig_times) > 0:
-            y = 1.1 * np.max(epochs) + i * offset_between_bars
-            dt = (t[1] - t[0]) / 2
-            for st in sig_times:
-                ax.plot((st - dt, st + dt), (y, y), color=p[0].get_color(), linewidth=3)
-
-    # Add a dashed line at time = 0
-    ax.axvline(0, linestyle="--", color="black")
-
-    # Set title, axis labels and range
-    ax.set_title(title)
-    ax.set_xlabel(x_label)
-    ax.set_ylabel(y_label)
-    ax.set_xlim(t[0], t[-1])
-
-    # Add a legend
-    if add_legend:
-        ax.legend(loc=legend_loc)
-
-    # Save figure
-    if filename is not None:
-        save(fig, filename)
-    elif create_fig:
-        return fig, ax

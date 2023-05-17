@@ -28,6 +28,7 @@ from osl_dynamics.inference.layers import (
     SampleNormalDistributionLayer,
     SampleGammaDistributionLayer,
     SoftmaxLayer,
+    ConcatenateLayer,
     ConcatEmbeddingsLayer,
     SubjectMapLayer,
     MixSubjectSpecificParametersLayer,
@@ -254,31 +255,6 @@ class Model(VariationalInferenceModelBase):
         """SE-DyNeMo requires subject id to be included in the dataset."""
         return super().make_dataset(inputs, shuffle, concatenate, subj_id)
 
-    def fit(self, training_data, *args, **kwargs):
-        # Set Bayesian KL scaling
-        self.set_bayesian_kl_scaling(training_data)
-        return super().fit(training_data, *args, **kwargs)
-
-    def get_group_means(self):
-        """Get the group means.
-
-        Returns
-        -------
-        means : np.ndarray
-            Group means. Shape is (n_modes, n_channels).
-        """
-        return dynemo_obs.get_means(self.model, "group_means")
-
-    def get_group_covariances(self):
-        """Get the group covariances.
-
-        Returns
-        -------
-        covariances : np.ndarray
-            Group covariances. Shape is (n_modes, n_channels, n_channels).
-        """
-        return dynemo_obs.get_covariances(self.model, "group_covs")
-
     def get_group_means_covariances(self):
         """Get the group means and covariances of each mode
 
@@ -289,7 +265,7 @@ class Model(VariationalInferenceModelBase):
         covariances : np.ndarray
             Mode covariances for the group. Shape is (n_modes, n_channels, n_channels).
         """
-        return sedynemo_obs.get_group_means_covariances(self.model)
+        return sedynemo_obs.get_group_means_covs(self.model)
 
     def get_observation_model_parameters(self):
         """Wrapper for get_group_means_covariances."""
@@ -324,7 +300,7 @@ class Model(VariationalInferenceModelBase):
             Mode covariances for each subject.
             Shape is (n_subjects, n_modes, n_channels, n_channels).
         """
-        return sedynemo_obs.get_subject_means_covariances(
+        return sedynemo_obs.get_subject_means_covs(
             self.model,
             self.config.learn_means,
             self.config.learn_covariances,
@@ -529,7 +505,7 @@ def _model_structure(config):
         means_dev_map_layer = layers.Dense(config.n_channels, name="means_dev_map")
 
         norm_means_dev_map_layer = layers.LayerNormalization(
-            axis=-1, name="norm_means_dev_map"
+            axis=-1, scale=False, name="norm_means_dev_map"
         )
 
         means_dev_mag_inf_alpha_input_layer = LearnableTensorLayer(
@@ -615,7 +591,7 @@ def _model_structure(config):
             config.n_channels * (config.n_channels + 1) // 2, name="covs_dev_map"
         )
         norm_covs_dev_map_layer = layers.LayerNormalization(
-            axis=-1, name="norm_covs_dev_map"
+            axis=-1, scale=False, name="norm_covs_dev_map"
         )
 
         covs_dev_mag_inf_alpha_input_layer = LearnableTensorLayer(
@@ -725,6 +701,7 @@ def _model_structure(config):
         config.model_regularizer,
         name="mod_rnn",
     )
+    concatenate_layer = ConcatenateLayer(axis=2, name="model_concat")
     mod_mu_layer = layers.Dense(config.n_modes, name="mod_mu")
     mod_sigma_layer = layers.Dense(
         config.n_modes, activation="softplus", name="mod_sigma"
@@ -734,8 +711,10 @@ def _model_structure(config):
     # Data flow
     model_input_dropout = model_input_dropout_layer(theta_norm)
     model_output = model_output_layer(model_input_dropout)
-    mod_mu = mod_mu_layer(model_output)
-    mod_sigma = mod_sigma_layer(model_output)
+    dynamic_subject_embeddings = subject_embeddings_layer(subj_id)
+    model_output_concat = concatenate_layer([model_output, dynamic_subject_embeddings])
+    mod_mu = mod_mu_layer(model_output_concat)
+    mod_sigma = mod_sigma_layer(model_output_concat)
     kl_div = kl_div_layer([inf_mu, inf_sigma, mod_mu, mod_sigma])
 
     # For the observation model (static KL loss)
